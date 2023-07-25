@@ -5,7 +5,7 @@ import copy
 import os
 
 # Get input file and store it in a variable
-input_file = "Input 1.txt"
+input_file = "Input 2.txt"
 # input_file = input("Enter input file name: ")
 
 output_file = "Output " + input_file[6] + ".txt"
@@ -231,10 +231,8 @@ def process_operation(line, timestamp):
                     # Blocked transaction, add operation to waiting list      
                     transaction.add_blocked_op(line.strip())
                 else:                    
-                    # aquire a read lock for this item by this transaction
-                    transaction.read(item)
-                    #modified_line = ' T' + t_id + ' reads item ' + item  + '\n'
-            
+                    # Read lock for this item by this transaction
+                    transaction.read(item)            
             elif (op == 'w'):
             # Transaction writes item 
                 item = line[3]
@@ -242,9 +240,8 @@ def process_operation(line, timestamp):
                     # Blocked transaction, add operation to waiting list      
                     transaction.add_blocked_op(line.strip())
                 else:                    
-                    # aquire a write lock for this item by this transaction
+                    # Write lock for this item by this transaction
                     transaction.write(item)
-                    #modified_line = ' T' + t_id + ' writes item ' + item  + '\n'  
             
             elif (op == 'e'):
             # Commit transaction 
