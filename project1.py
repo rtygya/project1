@@ -1,6 +1,9 @@
 # Reety Gyawali 1001803756
 # Rakshav Patel – 10011941754
 
+import copy
+import os
+
 # Get input file and store it in a variable
 input_file = "Input 2.txt"
 # input_file = input("Enter input file name: ")
@@ -13,6 +16,7 @@ A = "active"
 B = "abort"
 C = "committed"
 E = "abort"
+W = "Waiting"
 
 #array that will hold transaction table items 
 transTableItem = []
@@ -25,6 +29,12 @@ RW_transaction = []
 W = "write"
 R = "Read"
 
+# this will hav waiting transaction values
+W_Transaction = []
+
+# Variable to track timestamp for transaction
+timestamp = 1
+
 # lock class this will hold diffrent elements of the lock tabel
 class lock_table():
     def __init__(self, lock_sate, lock_item, t_id):
@@ -35,14 +45,75 @@ class lock_table():
         self.lockHoldBy.append(t_id)
     def ChangeLock_State(self, lock_state):
         self.lock_state = lock_state
-    def lockHoldBy(self, t_id):
+    def add_locking_trxn(self, t_id):
         self.lockHoldBy.append(t_id)
     def waiting_transaction(self, t_id):
-        self.RW_transaction.append(t_id) # waitinmg for items to be unlocked
+        self.RW_transaction.append(t_id) # waitinmg for items to be unlocked 
+    
+# Readlock function
+def readlock(i, X):
+    item = find_lock_item(X)
+    if not item:
+        locTableItem.append(lock_table("read-locked", X, i))
+        print(locTableItem[-1].lock_item + ' is read-locked by' + ' T' + str(i) + '. ') 
+        return 1
+    elif item.lock_state == "read-locked" and i in item.lockHoldBy:
+        print(' T' + i + ' already has write lock on ' + X)
+        return 1
+    elif item.lock_state == "read-locked" and i not in item.lockHoldBy:
+        item.add_locking_trxn(i)
+        print(item.lock_item + ' is read-locked by' + ' T' + str(i) + '. ') 
+        return 1
+    elif item.lock_state == "write-locked" and item.lockHoldBy[0] == i:
+        item.lockHoldBy.clear()
+        item.add_locking_trxn(i)
+        item.ChangeLock_State("read-locked")
+        print(item.lock_item + ' is read-locked by' + ' T' + str(i) + '. ') 
+        return 1
+    elif item.lock_state == "write-locked" and item.lockHoldBy[0] != i:  
+        print(find_transaction(i).wait_die(find_transaction(item.lockHoldBy[0]), item))
+        return 0
         
-# Variable to track timestamp for transaction
-timestamp = 1
+# Writelock function
+def writelock(i, X):
+    item = find_lock_item(X)
+    if not item:
+        locTableItem.append(lock_table("write-locked", X, i))
+        print(' T' + i + ' write-locked. ') 
+        return 1
+    elif item.lock_state == "write-locked" and item.lockHoldBy[0] == i:
+        print(' T' + i + ' already has write lock on ' + X)
+        return 1
+    elif item.lock_state == "read-locked" and len(item.lockHoldBy) == 1 and item.lockHoldBy[0] == i:
+        item.lockHoldBy.clear()
+        item.add_locking_trxn(i)
+        item.ChangeLock_State("write-locked")
+        print(' T' + i + ' upgraded from read-locked to write-locked') 
+        return 1
+    elif item.lock_state == "read-locked" and len(item.lockHoldBy) >= 1:
+        for tid in item.lockHoldBy:
+            if tid != i:
+                print(find_transaction(i).wait_die(find_transaction(tid), item))
+    elif item.lock_state == "write-locked" and item.lockHoldBy[0] != i:
+        find_transaction(i).wait_die(find_transaction(item.lockHoldBy[-1]), item)
+        return 0
 
+# Unlock function         
+def unlock(item):
+    if item in locTableItem:
+        wt = item.RW_transaction
+        locTableItem.remove(item)
+        for transaction in wt:
+            if transaction:
+                transaction.state = "active"
+                resume(transaction)
+
+# Resume function
+def resume(transaction):
+        # process all blocked operations
+        for op in transaction.blocked_operations:
+            print(op + ' T' + op[1] + ' is released from operation list. ' + process_operation(op, timestamp) + '\n')
+            
 # Transaction class
 class Transaction:
     def __init__(self, id, ts, state):
@@ -57,34 +128,123 @@ class Transaction:
             
     def add_blocked_op(self, op):
         self.blocked_operations.append(op)
+        if (op[0] == 'r'):
+            item = op[3]
+            print(' T' + self.id + ' reading ' + item + ' is added to operation list.')
+            return ' T' + self.id + ' reading ' + item + ' is added to operation list. \n'
+        elif (op[0] == 'w'):
+            item = op[3]
+            print(' T' + self.id + ' writing ' + item + ' is added to operation list.')
+            return ' T' + self.id + ' writing ' + item + ' is added to operation list. \n'
+        elif (op[0] == 'e'):
+            print('Committing T' + self.id + ' is added to operation list. ')
+            return 'Committing T' + self.id + ' is added to operation list. \n'
+        else:
+            print('Operation added to list. ')
+            return 'Operation added to list. \n'
+    
+    def read(self, item):
+        if readlock(self.id, item):
+            if find_lock_item(item) not in self.locked_items:
+                self.lock_item(find_lock_item(item))
+        
+    def write(self, item):
+        if writelock(self.id, item):
+            if find_lock_item(item) not in self.locked_items:
+                self.lock_item(find_lock_item(item))
                     
     def commit(self): 
-        for i in self.locked_items:     # unlock all items locked by this transaction
-            locTableItem.unlock(i)      
+        for item in self.locked_items:
+            unlock(item)    
         self.state = C  # state is now committed
+        print(' T' + self.id + ' is ' + self.state + '.')
+        return ' T' + self.id + ' is ' + self.state + '. \n'
+        
                 
     def abort(self):
-        for i in self.locked_items:     # unlock all items locked by this transaction
-            locTableItem.unlock(i)      
+        for item in self.locked_items:
+            unlock(item)
         self.state = "aborted"  # state is now aborted
         
-    def block(self):
-        self.state = "blocked"
+    def wait_die(self, t2, item):
+        # this transaction currently requests an item locked by t2
+        if self.ts < t2.ts:
+            print('T' + self.id + ' is blocked/waiting due to wait-die')
+            self.state = "blocked"  # block if older
+            item.waiting_transaction(find_transaction(self.id))
+        else:
+            print('T' + self.id + ' is aborted due to wait-die')
+            self.abort()            # abort if younger
+            
         
-# Wait-die function
-def wait_die(t1, t2):
-    # t1 currently requests an item locked by t2
-    if t1.ts < t2.ts:
-        t1.block()  # block if t1 older
-    else:
-        t1.abort()  # abort if t1 younger
+# Begin function
+def begin(ts, t_id):
+    transTableItem.append(Transaction(t_id, ts, A)) 
+    print(' T' + t_id + ' begins. Id=' + transTableItem[-1].id + ' TS=' + str(transTableItem[-1].ts) + '. state=' + A + '.')
+    return ' T' + t_id + ' begins. Id=' + transTableItem[-1].id + ' TS=' + str(transTableItem[-1].ts) + '. state=' + A + '.\n'
+        
+
     
 # Function to easily find transaction with specific id
 def find_transaction(target_id):
     for t in transTableItem:
         if t.id == target_id:
             return t   # Return transaction object
+    return None 
+
+# Function to easily find item with name
+def find_lock_item(name):
+    for l in locTableItem:
+        if l.lock_item == name:
+            return l   # Return lock item
     return None  
+
+        
+# Process each input sequence              
+def process_operation(line, timestamp):
+    # Store transaction ID and operation in variables
+    t_id = line[1]
+    op = line[0]
+    transaction = find_transaction(t_id)
+    modified_line = '\n'
+    if transaction:
+        if transaction.state == "aborted":  # If transaction is not aborted
+            modified_line = ' T' + t_id + ' is already aborted. \n'
+            print(' T' + t_id + " is already aborted. ")
+        else:
+            if (op == 'r'):
+            # Transaction reads item 
+                item = line[3]
+                if transaction.state == "blocked":
+                    # Blocked transaction, add operation to waiting list      
+                    modified_line = transaction.add_blocked_op(line.strip())
+                else:                    
+                    # aquire a read lock for this item by this transaction
+                    transaction.read(item)
+                    modified_line = ' T' + t_id + ' reads item ' + item  + '\n'
+            
+            elif (op == 'w'):
+            # Transaction writes item 
+                item = line[3]
+                if transaction.state == "blocked":
+                    # Blocked transaction, add operation to waiting list      
+                    modified_line = transaction.add_blocked_op(line.strip())
+                else:                    
+                    # aquire a write lock for this item by this transaction
+                    transaction.write(item)
+                    modified_line = ' T' + t_id + ' writes item ' + item  + '\n'  
+            
+            elif (op == 'e'):
+            # Commit transaction 
+                if transaction.state == "blocked":
+                    # Blocked transaction, add operation to waiting list      
+                    modified_line = transaction.add_blocked_op(line.strip())
+                else:           
+                    modified_line = transaction.commit()        
+    elif (line[0] == 'b'):    
+        # Begin new transaction
+        modified_line = begin(timestamp, t_id)    
+    return modified_line
 
 # Reading and parsing each line in file 
 try:
@@ -92,36 +252,11 @@ try:
         lines = input.readlines()
 
     with open(output_file, 'w') as output:
-        for line in lines:
-            # Store transaction ID and operation in variables
-            t_id = line[1]
-            op = line[0]
-            transaction = find_transaction(t_id)
-            
-            if transaction:
-                if not transaction.state == "aborted":  # Process operations only if transaction is not aborted
-                    if transaction.state == "blocked":
-                        # Blocked transaction, add operation to waiting list      
-                        transaction.add_blocked_op(op)  
-                    elif (op == 'r'):
-                        # Transaction readlocks item 
-                        item = line[3]
-                        modified_line = line.strip() + ' T' + t_id + ' reads item ' + item  + '\n'
-                    elif (op == 'w'):
-                        # Transaction writelocks item 
-                        item = line[3]
-                        modified_line = line.strip() + ' T' + t_id + ' writes item ' + item  + '\n'
-                    elif (op == 'e'):
-                        # Commit transaction 
-                        transaction.commit()
-                        modified_line = line.strip() + ' T' + t_id + ' is ' + transaction.state + '\n'
-            elif (op == 'b'):
-                # Begin transaction
-                transTableItem.append(Transaction(t_id, timestamp, A)) 
-                modified_line = line.strip() + ' T' + t_id + ' begins. TS=' + str(timestamp) + '. Id=' + t_id + '. state=' + A + '.\n'
+        # Process b, r, w, or e
+        for line in lines:           
+            output.write(line.strip() + process_operation(line.strip(), timestamp))
+            if line[0] == 'b':
                 timestamp += 1
-            
-            output.write(modified_line)
         
         # Write the final states of each transaction at the very end
         final_line = "Final state:\n"
